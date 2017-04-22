@@ -2,39 +2,147 @@
 #include <stdlib.h>
 #include <pthread.h>
 #include <stdint.h>
+#include <stdbool.h>
+#include <math.h>
 
-unsigned int nthreads = 5;
+unsigned int nthreads = 30;
 #define SIZE 9
 
 int load_grid(int grid[][SIZE], char *filename);
 int grid[9][9];
+int erros = 0;
+int nextTask = 0;
 
-void checkCellLine(unsigned cell) {
+
+pthread_mutex_t mutexErr, mutexTask;
+
+void checkCol(int col) {
+	//pthread_t tid = pthread_self();
+	//printf("coluna %d e thread %u\n", col + 1, (unsigned int)tid);
 	
-	uint8_t row = (cell - 1) / (SIZE);
-	uint8_t col = (cell - 1) % SIZE;
-	uint8_t lineLimit = SIZE - col - 1;
-	uint8_t n = grid[row][col];
-	
-	printf("N: %d - Limite: %d\n", grid[row][col], lineLimit);
-	
-	//for(uint8_t i = cell; i <= limiteLine; i++) printf("%d", grid[][]); 
+	for (int i = 0; i < SIZE; i++) {
+		for (int j = i + 1; j < SIZE; j++) {
+			if (grid[i][col] == grid[j][col]) {
+				printf("Erro na coluna %d!\n", col + 1);
+				
+				pthread_mutex_lock(&mutexErr);
+				erros++;
+				pthread_mutex_unlock(&mutexErr);
+				return;
+			}
+		}
+	}
 }
 
-void checkCellColumn(unsigned cell){}
+void checkRow(int row) {
+	//pthread_t tid = pthread_self();
+	//printf("linha %d e thread %u\n", row + 1, (unsigned int)tid);
+	
+	for (int i = 0; i < SIZE; i++) {
+		for (int j = i + 1; j < SIZE; j++) {
+			if (grid[row][i] == grid[row][j]) {
+				printf("Erro na linha %d!\n", row + 1);
+				
+				pthread_mutex_lock(&mutexErr);
+				erros++;
+				pthread_mutex_unlock(&mutexErr);
+				return;
+			}
+		}
+	}
+}
 
-void checkCell(unsigned cell) {
+void checkReg(int reg) {
+	//pthread_t tid = pthread_self();
+	//printf("região %d e thread %u\n", reg + 1, (unsigned int)tid);
+	
+	int rowBase = (reg / 3) * 3;
+	int rowLimit = ((reg + 3)/ 3) * 3;
+	int colBase = (reg % 3) * 3;
+	int colLimit = ((reg % 3) + 1) * 3;
+	int regVector[SIZE]; 
+	int k = -1;
+	
+	for (int i = rowBase; i < rowLimit; i++) {
+		for (int j = colBase; j < colLimit; j++) {
+			regVector[++k] = grid[i][j];
+		}
+	}
+	
+	for (int i = 0; i < SIZE; i++) {
+		for (int j = i + 1; j < SIZE; j++) {
+			if (regVector[i] == regVector[j]) {
+				printf("Erro na região %d!\n", reg + 1);
+				
+				pthread_mutex_lock(&mutexErr);
+				erros++;
+				pthread_mutex_unlock(&mutexErr);
+				return;
+			}
+		}
+	}
+}
+
+void *check(void* arg) {	
+	
+	pthread_mutex_lock(&mutexTask);
+	
+	while (nextTask < 27) {
 		
-}
-void *checkAll(void *arg) {
-	
+		int task;
+		switch ((nextTask / 9)) {
+			case 0:
+				task = nextTask % 9;
+				nextTask++;
+				pthread_mutex_unlock(&mutexTask);
+				checkCol(task);				
+				break;
+			case 1:
+				task = nextTask % 9;
+				nextTask++;
+				pthread_mutex_unlock(&mutexTask);
+				checkRow(task);
+				break;
+			case 2:
+				task = nextTask % 9;
+				nextTask++;
+				pthread_mutex_unlock(&mutexTask);
+				checkReg(task);
+				break;
+		}
+		pthread_mutex_lock(&mutexTask);
+	}
+	pthread_mutex_unlock(&mutexTask);
+	return NULL;
 }
 
 int main() {
+	if(nthreads > 27) nthreads = 27;
 	
 	load_grid(grid, "input_grid_errado.txt");
-	for(int i = 1; i < 82; i++) checkCellLine(i);
-	return 0;
+	
+	//pthread_mutex_init(&mutexRow, NULL);
+	//pthread_mutex_init(&mutexCol, NULL);
+	//pthread_mutex_init(&mutexReg, NULL);
+	pthread_mutex_init(&mutexErr, NULL);
+	pthread_mutex_init(&mutexTask, NULL);
+	
+	pthread_t thread[nthreads];
+	for (int i = 0; i < nthreads; i++) {
+		pthread_create(&thread[i], NULL, check, NULL);
+	}
+	
+	for (int i = 0; i < nthreads; i++) {
+		pthread_t t = thread[i];
+		pthread_join(t, NULL);
+	}
+	
+	printf("%d erros.\n", erros);
+	
+	pthread_mutex_destroy(&mutexErr);
+	pthread_mutex_destroy(&mutexTask);
+	
+	pthread_exit(NULL);
 }
 
 
