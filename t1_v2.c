@@ -3,138 +3,164 @@
 #include <pthread.h>
 #include <stdint.h>
 #include <stdbool.h>
-#include <math.h>
 
 unsigned int nthreads = 30;
 #define SIZE 9
 
 int load_grid(int grid[][SIZE], char *filename);
 int grid[9][9];
+int reorgGrid[9][9];
+int nextCell = 0;
+int nextReorgCell = 0;
 int erros = 0;
-int nextTask = 0;
+pthread_t tidpai;
 
+pthread_mutex_t mutexCell, mutexReorg, mutexErr;
+pthread_barrier_t trump;
 
-pthread_mutex_t mutexErr, mutexTask;
-
-void checkCol(int col) {
+void checkCol(int cell) {
+	int col = cell % 9;
+	int row = cell / 9;
+	
 	//pthread_t tid = pthread_self();
 	//printf("coluna %d e thread %u\n", col + 1, (unsigned int)tid);
 	
-	for (int i = 0; i < SIZE; i++) {
-		for (int j = i + 1; j < SIZE; j++) {
-			if (grid[i][col] == grid[j][col]) {
-				printf("Erro na coluna %d!\n", col + 1);
-				
-				pthread_mutex_lock(&mutexErr);
-				erros++;
-				pthread_mutex_unlock(&mutexErr);
-				return;
-			}
+	for (int i = row + 1; i < SIZE; i++) {
+		if (grid[row][col] == grid[i][col]) {
+			printf("Erro na coluna %d!\n", col + 1);
+			
+			pthread_mutex_lock(&mutexErr);
+			erros++;
+			pthread_mutex_unlock(&mutexErr);
+			return;
 		}
 	}
 }
 
-void checkRow(int row) {
+void checkRow(int cell) {
+	int col = cell % 9;
+	int row = cell / 9;
+	
 	//pthread_t tid = pthread_self();
 	//printf("linha %d e thread %u\n", row + 1, (unsigned int)tid);
 	
-	for (int i = 0; i < SIZE; i++) {
-		for (int j = i + 1; j < SIZE; j++) {
-			if (grid[row][i] == grid[row][j]) {
-				printf("Erro na linha %d!\n", row + 1);
-				
-				pthread_mutex_lock(&mutexErr);
-				erros++;
-				pthread_mutex_unlock(&mutexErr);
-				return;
-			}
+	for (int i = col + 1; i < SIZE; i++) {
+		if (grid[row][col] == grid[row][i]) {
+			printf("Erro na linha %d!\n", row + 1);
+			
+			pthread_mutex_lock(&mutexErr);
+			erros++;
+			pthread_mutex_unlock(&mutexErr);
+			return;
 		}
 	}
 }
 
-void checkReg(int reg) {
+void checkReg(int cell) {
+	 
+	int row = (cell / 27) * 3 + (cell / 3) % 3;
+	//printf("%d\n", row);
+	int col = (cell % 3) + ((cell % 27) / 9) * 3;
+	
 	//pthread_t tid = pthread_self();
-	//printf("região %d e thread %u\n", reg + 1, (unsigned int)tid);
+	//printf("região %d e thread %u\n", row + 1, (unsigned int)tid);
 	
-	int rowBase = (reg / 3) * 3;
-	int rowLimit = ((reg + 3)/ 3) * 3;
-	int colBase = (reg % 3) * 3;
-	int colLimit = ((reg % 3) + 1) * 3;
-	int regVector[SIZE]; 
-	int k = -1;
-	
-	for (int i = rowBase; i < rowLimit; i++) {
-		for (int j = colBase; j < colLimit; j++) {
-			regVector[++k] = grid[i][j];
+	for (int i = col + 1; i < SIZE; i++) {
+		//printf("%d ", reorgGrid[row][i]);
+		if (reorgGrid[row][col] == reorgGrid[row][i]) {
+			printf("Erro na região %d!\n", row + 1);
+			
+			pthread_mutex_lock(&mutexErr);
+			erros++;
+			pthread_mutex_unlock(&mutexErr);
+			return;
 		}
 	}
-	
-	for (int i = 0; i < SIZE; i++) {
-		for (int j = i + 1; j < SIZE; j++) {
-			if (regVector[i] == regVector[j]) {
-				printf("Erro na região %d!\n", reg + 1);
-				
-				pthread_mutex_lock(&mutexErr);
-				erros++;
-				pthread_mutex_unlock(&mutexErr);
-				return;
-			}
-		}
-	}
+	//printf("\n");
 }
 
-void *check(void* arg) {	
+void reorganizeRegions(int cell) {
+	int rowNew = (cell / 27) * 3 + (cell / 3) % 3;
+	int colNew = (cell % 3) + ((cell % 27) / 9) * 3;
 	
-	pthread_mutex_lock(&mutexTask);
+	int rowOld = cell / 9;
+	int colOld = cell % 9;
 	
-	while (nextTask < 27) {
+	reorgGrid[rowNew][colNew] = grid[rowOld][colOld];
+}
+
+void *check(void* arg) {
+	int cell;
+	
+	while (true) {
+		pthread_mutex_lock(&mutexReorg);
+		if (nextReorgCell > 81) {
+			pthread_mutex_unlock(&mutexReorg);
+			break;
+		}
+		int reorgCell = nextReorgCell;
+		nextReorgCell++;
+		pthread_mutex_unlock(&mutexReorg);
 		
-		int task;
-		switch ((nextTask / 9)) {
+		reorganizeRegions(reorgCell);
+	}
+	
+	pthread_barrier_wait(&trump);
+	
+	
+	
+	pthread_mutex_lock(&mutexCell);
+	
+	while (nextCell < 242) {
+		switch (nextCell % 3) {
 			case 0:
-				task = nextTask % 9;
-				nextTask++;
-				pthread_mutex_unlock(&mutexTask);
-				checkCol(task);				
+				cell = nextCell / 3;
+				nextCell++;
+				pthread_mutex_unlock(&mutexCell);
+				checkCol(cell);				
 				break;
 			case 1:
-				task = nextTask % 9;
-				nextTask++;
-				pthread_mutex_unlock(&mutexTask);
-				checkRow(task);
+				cell = nextCell / 3;
+				nextCell++;
+				pthread_mutex_unlock(&mutexCell);
+				checkRow(cell);
 				break;
 			case 2:
-				task = nextTask % 9;
-				nextTask++;
-				pthread_mutex_unlock(&mutexTask);
-				checkReg(task);
+				cell = nextCell / 3;
+				nextCell++;
+				pthread_mutex_unlock(&mutexCell);
+				checkReg(cell);
 				break;
 		}
-		pthread_mutex_lock(&mutexTask);
+		pthread_mutex_lock(&mutexCell);
 	}
-	pthread_mutex_unlock(&mutexTask);
+	pthread_mutex_unlock(&mutexCell);
 	return NULL;
 }
 
 int main(int argc, char **argv) {
 	
 	if(argc != 3) {
-		printf("Usage: ./t1_v2 file.txt number_threads\n");
+		printf("Usage: ./t1_v1 file.txt number_threads\n");
 		exit(0);
 	}
 
 	char *gridFile = argv[1];
 	nthreads   = atoi(argv[2]);
 	
-	if(nthreads > 27) nthreads = 27;
+	tidpai = pthread_self();
+	
+	//nextRow = nextCell / 9;
+	//nextReg = (nextCell / 27) * 3 + (nextCell / 9) / 3;
+	
+	if(nthreads > 80) nthreads = 80;
 	
 	load_grid(grid, gridFile);
 	
-	//pthread_mutex_init(&mutexRow, NULL);
-	//pthread_mutex_init(&mutexCol, NULL);
-	//pthread_mutex_init(&mutexReg, NULL);
+	pthread_mutex_init(&mutexCell, NULL);
+	pthread_mutex_init(&mutexReorg, NULL);
 	pthread_mutex_init(&mutexErr, NULL);
-	pthread_mutex_init(&mutexTask, NULL);
+	pthread_barrier_init(&trump, NULL, nthreads);
 	
 	pthread_t thread[nthreads];
 	for (int i = 0; i < nthreads; i++) {
@@ -148,8 +174,26 @@ int main(int argc, char **argv) {
 	
 	printf("%d erros.\n", erros);
 	
+	pthread_barrier_destroy(&trump);
+	pthread_mutex_destroy(&mutexCell);
+	pthread_mutex_destroy(&mutexReorg);
 	pthread_mutex_destroy(&mutexErr);
-	pthread_mutex_destroy(&mutexTask);
+	
+	/*for (int i = 0; i < 9; i++) {
+		for (int j = 0; j < 9; j++) {
+			printf("%d ", reorgGrid[i][j]); 
+		}
+		printf("\n");  
+	}*/
+	
+	//printf("\n");
+	
+	/*for (int i = 0; i < 9; i++) {
+		for (int j = 0; j < 9; j++) {
+			printf("%d", grid[i][j]); 
+		}
+		printf("\n"); 
+	}*/
 	
 	pthread_exit(NULL);
 }
