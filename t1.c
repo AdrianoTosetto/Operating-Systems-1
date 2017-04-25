@@ -116,10 +116,19 @@ void *check(void* arg) {
 	return NULL;
 }
 
-int main() {
+int main(int argc, char **argv) {
+
+	if(argc != 3) {
+		printf("Usage: ./t1_v1 file.txt number_threads\n");
+		exit(0);
+	}
+
+	char *gridFile = argv[1];
+	nthreads   = atoi(argv[2]);
+
 	if(nthreads > 27) nthreads = 27;
 	
-	load_grid(grid, "input_grid_errado.txt");
+	load_grid(grid, gridFile);
 	
 	//pthread_mutex_init(&mutexRow, NULL);
 	//pthread_mutex_init(&mutexCol, NULL);
